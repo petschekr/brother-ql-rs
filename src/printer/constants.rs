@@ -1,11 +1,11 @@
-pub struct WidthLength(u32, u32);
+pub struct WidthLength(pub u32, pub u32);
 
 pub struct Label {
-	tape_size: WidthLength,
-	dots: WidthLength,
-	dots_printable: WidthLength,
-	right_margin: u32,
-	feed_margin: u32,
+	pub tape_size: WidthLength,
+	pub dots: WidthLength,
+	pub dots_printable: WidthLength,
+	pub right_margin: u32,
+	pub feed_margin: u32,
 }
 
 pub fn label_data(height: u8, width: Option<u8>) -> Option<Label> {

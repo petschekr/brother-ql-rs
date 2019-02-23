@@ -1,7 +1,7 @@
 use std::fmt;
 use std::time::Duration;
 
-mod constants;
+pub mod constants;
 
 pub enum Error {
 	USB(libusb::Error),
@@ -184,6 +184,7 @@ impl<'d> ThermalPrinter<'d> {
 		};
 
 		let status_type = match response[18] {
+			0x00 => Status::StatusType::ReplyToStatusRequest,
 			0x01 => Status::StatusType::PrintingCompleted,
 			0x02 => Status::StatusType::ErrorOccurred,
 			0x05 => Status::StatusType::Notification,
