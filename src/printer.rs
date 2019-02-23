@@ -264,7 +264,7 @@ impl<'d> ThermalPrinter<'d> {
 mod tests {
 	use crate::printer::ThermalPrinter;
 	#[test]
-	fn printer_connect() {
+	fn connect() {
 		let context = libusb::Context::new().unwrap();
 		let mut printer = ThermalPrinter::new(&context).unwrap();
 		let available = printer.available_devices().unwrap();
@@ -275,6 +275,7 @@ mod tests {
 	use std::path::PathBuf;
     use crate::printer::constants::label_data;
     #[test]
+	#[ignore]
     fn print() {
         let mut rasterizer = crate::text::TextRasterizer::new(
             label_data(12, None).unwrap(),
