@@ -90,10 +90,10 @@ fn image_to_raster_lines(image: &image::GrayImage, width: u32) -> Vec<[u8; 90]> 
             image.get_pixel(0, 0);
             let luma_pixel = image.get_pixel(c as u32, r as u32); // + 3 was here in TS code -- not sure if needed
             let value: u8 = if luma_pixel[0] > 0xFF / 2 {
-                1
+                0
             }
             else {
-                0
+                1
             };
             line[line_byte] |= value << line_bit_index;
         }
@@ -128,7 +128,7 @@ impl TextRasterizer {
 
         if self.label.tape_size.1 == 0 {
             // Continuous tape
-            width = self.label.dots_printable.0 + self.label.right_margin;
+            width = self.label.dots_printable.0 + self.label.right_margin as u32;
 
             if self.label.tape_size.0 == 12 {
                 // 12mm label seems to need this for some reason
@@ -141,7 +141,7 @@ impl TextRasterizer {
         }
         else {
             // Die cut labels
-            width = self.label.dots_printable.0 + self.label.right_margin;
+            width = self.label.dots_printable.0 + self.label.right_margin as u32;
             length = self.label.dots_printable.1;
         }
 

@@ -1,17 +1,19 @@
+#[derive(Debug)]
 pub struct WidthLength(pub u32, pub u32);
 
+#[derive(Debug)]
 pub struct Label {
 	pub tape_size: WidthLength,
 	pub dots: WidthLength,
 	pub dots_printable: WidthLength,
-	pub right_margin: u32,
-	pub feed_margin: u32,
+	pub right_margin: u8,
+	pub feed_margin: u8,
 }
 
-pub fn label_data(height: u8, width: Option<u8>) -> Option<Label> {
-	if let Some(width) = width {
+pub fn label_data(width: u8, length: Option<u8>) -> Option<Label> {
+	if let Some(length) = length {
 		// Die cut label
-		match (height, width) {
+		match (width, length) {
 			(17, 54) => Some(Label {
 				tape_size: WidthLength(17, 54),
 				dots: WidthLength(201, 636),
@@ -87,7 +89,7 @@ pub fn label_data(height: u8, width: Option<u8>) -> Option<Label> {
 	}
 	else {
 		// Continuous label
-		match height {
+		match width {
 			12 => Some(Label {
 				tape_size: WidthLength(12, 0),
 				dots: WidthLength(142, 0),

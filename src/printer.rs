@@ -60,6 +60,8 @@ mod Status {
 	}
 }
 
+const RASTER_LINE_LENGTH: u8 = 90;
+
 pub struct ThermalPrinter<'d> {
 	context: &'d libusb::Context,
 	handle: Option<libusb::DeviceHandle<'d>>,
@@ -128,7 +130,53 @@ impl<'d> ThermalPrinter<'d> {
 		Ok(())
 	}
 
-	fn get_status(&self) -> Result<Status::Response, Error> {
+	pub fn print(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<Status::Response, Error> {
+		let status = self.get_status()?;
+
+		let mode_command = [0x1B, 0x69, 0x61, 1];
+		self.write(&mode_command)?;
+
+		const VALID_FLAGS: u8 = 0x80 | 0x02 | 0x04 | 0x08 | 0x40; // Everything enabled
+		let media_type: u8 = match status.media.media_type {
+			Status::MediaType::ContinuousTape => 0x0A,
+			Status::MediaType::DieCutLabels => 0x0B,
+			_ => return Err("No media loaded into printer".into())
+		};
+
+		let mut media_command = [0x1B, 0x69, 0x7A, VALID_FLAGS, media_type, status.media.width, status.media.length, 0, 0, 0, 0, 0x01, 0];
+		let line_count = (raster_lines.len() as u32).to_le_bytes();
+		media_command[7..7 + 4].copy_from_slice(&line_count);
+		self.write(&media_command)?;
+
+		self.write(&[0x1B, 0x69, 0x4D, 1 << 6])?; // Enable auto-cut
+		self.write(&[0x1B, 0x69, 0x4B, 1 << 3 | 0 << 6])?; // Enable cut-at-end and disable high res printing
+
+		let label = self.current_label()?;
+
+		let margins_command = [0x1B, 0x69, 0x64, label.feed_margin, 0];
+		self.write(&margins_command)?;
+
+		for line in raster_lines.iter() {
+			let mut raster_command = vec![0x67, 0x00, RASTER_LINE_LENGTH];
+			raster_command.extend_from_slice(line);
+			self.write(&raster_command)?;
+		}
+
+		let print_command = [0x1A];
+		self.write(&print_command)?;
+
+		self.read()
+	}
+
+	pub fn current_label(&self) -> Result<constants::Label, Error> {
+		let media = self.get_status()?.media;
+		constants::label_data(media.width, match media.length {
+			0 => None,
+			_ => Some(media.length)
+		}).ok_or("Unknown media loaded in printer".into())
+	}
+
+	pub fn get_status(&self) -> Result<Status::Response, Error> {
 		let status_command = [0x1B, 0x69, 0x53];
 		self.write(&status_command)?;
 		self.read()
@@ -223,4 +271,28 @@ mod tests {
 		assert!(dbg!(available) > 0, "No printers found");
 		printer.init(0).unwrap();
 	}
+
+	use std::path::PathBuf;
+    use crate::printer::constants::label_data;
+    #[test]
+    fn print() {
+        let mut rasterizer = crate::text::TextRasterizer::new(
+            label_data(12, None).unwrap(),
+            PathBuf::from("./Space Mono Bold.ttf")
+        );
+        rasterizer.set_second_row_image(PathBuf::from("./logos/BuildGT Mono.png"));
+        let lines = rasterizer.rasterize(
+            "Ryan Petschek",
+            Some("Computer Science"),
+            1.2
+        );
+
+		let context = libusb::Context::new().unwrap();
+		let mut printer = ThermalPrinter::new(&context).unwrap();
+		let available = printer.available_devices().unwrap();
+		assert!(dbg!(available) > 0, "No printers found");
+		printer.init(0).unwrap();
+
+		dbg!(printer.print(lines).unwrap());
+    }
 }
