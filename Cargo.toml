@@ -1,6 +1,6 @@
 [package]
 name = "brother-ql-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 authors = ["Ryan Petschek <petschekr@gmail.com>"]
 description = "Print to QL-series thermal label printers from Brother"

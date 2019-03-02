@@ -28,6 +28,7 @@ impl From<&'static str> for Error {
 
 #[allow(non_snake_case)]
 mod Status {
+	use super::constants::*;
 	#[derive(Debug)]
 	pub enum MediaType {
 		None,
@@ -40,6 +41,17 @@ mod Status {
 		pub media_type: MediaType,
 		pub width: u8,
 		pub length: u8,
+	}
+	impl Media {
+		pub fn to_label(&self) -> Label {
+			let length = if self.length == 0 {
+				None
+			}
+			else {
+				Some(self.length)
+			};
+			label_data(self.width, length).expect("Printer reported invalid label dimensions")
+		}
 	}
 
 	#[derive(Debug)]
@@ -92,7 +104,7 @@ impl<'d> ThermalPrinter<'d> {
 		Ok(devices.count() as u8)
 	}
 
-	pub fn init(&mut self, index: u8) -> Result<(), Error> {
+	pub fn init(&mut self, index: u8) -> Result<Status::Response, Error> {
 		let device = self.context.devices()?
 			.iter()
 			.filter(ThermalPrinter::printer_filter)
@@ -125,9 +137,7 @@ impl<'d> ThermalPrinter<'d> {
 		let initialize_command = [0x1B, 0x40];
 		self.write(&initialize_command)?;
 
-		dbg!(self.get_status()?);
-
-		Ok(())
+		self.get_status()
 	}
 
 	pub fn print(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<Status::Response, Error> {
@@ -273,12 +283,17 @@ mod tests {
 	}
 
 	use std::path::PathBuf;
-    use crate::printer::constants::label_data;
     #[test]
 	#[ignore]
     fn print() {
+		let context = libusb::Context::new().unwrap();
+		let mut printer = ThermalPrinter::new(&context).unwrap();
+		let available = printer.available_devices().unwrap();
+		assert!(dbg!(available) > 0, "No printers found");
+		let label = printer.init(0).unwrap().media.to_label();
+
         let mut rasterizer = crate::text::TextRasterizer::new(
-            label_data(12, None).unwrap(),
+            label,
             PathBuf::from("./Space Mono Bold.ttf")
         );
         rasterizer.set_second_row_image(PathBuf::from("./logos/BuildGT Mono.png"));
@@ -287,12 +302,6 @@ mod tests {
             Some("Computer Science"),
             1.2
         );
-
-		let context = libusb::Context::new().unwrap();
-		let mut printer = ThermalPrinter::new(&context).unwrap();
-		let available = printer.available_devices().unwrap();
-		assert!(dbg!(available) > 0, "No printers found");
-		printer.init(0).unwrap();
 
 		dbg!(printer.print(lines).unwrap());
     }
