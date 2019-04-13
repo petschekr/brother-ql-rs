@@ -48,12 +48,17 @@ impl<'a> ResizedText<'a> {
     }
 }
 
-fn draw_glyphs(image: &mut image::GrayImage, glyphs: &[rusttype::PositionedGlyph], offset: XY<i32>) {
+fn draw_glyphs(image: &mut image::GrayImage, glyphs: &[rusttype::PositionedGlyph], offset: XY<i32>, invert: bool) {
     for glyph in glyphs {
         if let Some(bounding_box) = glyph.pixel_bounding_box() {
             // Draw the glyph into the image per-pixel by using the draw closure
             glyph.draw(|x, y, v| {
-                let color = 255 - (255.0 * v) as u8;
+                let color = if invert {
+                    (255.0 * v) as u8
+                }
+                else {
+                    255 - (255.0 * v) as u8
+                };
 
                 image.put_pixel(
                     // Offset the position by the glyph bounding box
@@ -118,7 +123,7 @@ impl TextRasterizer {
     pub fn set_second_row_image(&mut self, path: PathBuf) {
         self.second_row_image = Some(path);
     }
-    pub fn rasterize(&self, text: &str, secondary_text: Option<&str>, font_scale: f32) -> Vec<[u8; 90]> {
+    pub fn rasterize(&self, text: &str, secondary_text: Option<&str>, font_scale: f32, invert: bool) -> Vec<[u8; 90]> {
         let font_data = fs::read(&self.font_path).expect("Invalid font path");
         let font: Font<'static> = Font::from_bytes(font_data).unwrap();
 
@@ -147,8 +152,22 @@ impl TextRasterizer {
 
         let mut image = DynamicImage::new_luma8(length, width + secondary_width).to_luma();
         // Set image background
-        for pixel in image.pixels_mut() {
-            *pixel = Luma([255]); // Set to white
+        for (_x, y, pixel) in image.enumerate_pixels_mut() {
+            if invert {
+                let top_label_size =
+                    self.label.dots_printable.0
+                    + self.label.right_margin as u32
+                    + 15;
+                if y > top_label_size {
+                    *pixel = Luma([255]); // Set to white
+                }
+                else {
+                    *pixel = Luma([0]); // Set to black
+                }
+            }
+            else {
+                *pixel = Luma([255]); // Set to white
+            }
         }
 
         match secondary_text {
@@ -164,8 +183,8 @@ impl TextRasterizer {
                     x: (length as i32 / 2) - (secondary.rendered_size.x as i32 / 2),
                     y: (width  as i32 / 1) - (secondary.rendered_size.y as i32 / 2) - 20,
                 };
-                draw_glyphs(&mut image, &primary.glyphs, primary_offset);
-                draw_glyphs(&mut image, &secondary.glyphs, secondary_offset);
+                draw_glyphs(&mut image, &primary.glyphs, primary_offset, invert);
+                draw_glyphs(&mut image, &secondary.glyphs, secondary_offset, invert);
             },
             None => {
                 let primary = ResizedText::create(&font, text, length, 125.0 * font_scale);
@@ -175,7 +194,7 @@ impl TextRasterizer {
                     y: (width  as i32 / 2) - (primary.rendered_size.y as i32 / 2),
                 };
 
-                draw_glyphs(&mut image, &primary.glyphs, offset);
+                draw_glyphs(&mut image, &primary.glyphs, offset, invert);
             }
         }
 
