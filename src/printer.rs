@@ -1,5 +1,6 @@
 use std::fmt;
 use std::time::Duration;
+use std::collections::HashMap;
 
 pub mod constants;
 
@@ -72,21 +73,17 @@ mod Status {
 	}
 }
 
-const RASTER_LINE_LENGTH: u8 = 90;
-
-pub struct ThermalPrinter<'d> {
-	context: &'d libusb::Context,
-	handle: Option<libusb::DeviceHandle<'d>>,
-	in_endpoint: Option<u8>,
-	out_endpoint: Option<u8>,
+pub struct PrinterManager {
+	context: libusb::Context,
+	init_map: HashMap<u8, bool>
 }
-impl<'d> ThermalPrinter<'d> {
-	pub fn new(context: &'d libusb::Context) -> Result<Self, Error> {
-		Ok(ThermalPrinter {
+
+impl PrinterManager {
+	pub fn new() -> Result<Self, Error> {
+		let context = libusb::Context::new()?;
+		Ok(Self {
 			context,
-			handle: None,
-			in_endpoint: None,
-			out_endpoint: None,
+			init_map: HashMap::new()
 		})
 	}
 
@@ -100,21 +97,47 @@ impl<'d> ThermalPrinter<'d> {
 
 	pub fn available_devices(&self) -> Result<u8, Error> {
 		let devices = self.context.devices()?;
-		let devices = devices.iter().filter(ThermalPrinter::printer_filter);
+		let devices = devices.iter().filter(PrinterManager::printer_filter);
 		Ok(devices.count() as u8)
 	}
 
-	pub fn init(&mut self, index: u8) -> Result<Status::Response, Error> {
-		let device = self.context.devices()?
+	pub fn get<F>(&mut self, index: u8, callback: F) -> ()
+		where F: FnOnce(ThermalPrinter) -> ()
+	{
+		let device = self.context
+			.devices().expect("Failed to get devices")
 			.iter()
-			.filter(ThermalPrinter::printer_filter)
-			.nth(index as usize)
-			.expect("No printer found at index");
+			.filter(PrinterManager::printer_filter)
+			.nth(index as usize).expect("No printer found at index");
+		let mut printer = ThermalPrinter::new(device).unwrap();
+		if !self.init_map.get(&index).unwrap_or(&false) {
+			printer.init().unwrap();
+			self.init_map.insert(index, true);
+		}
+		callback(printer);
+	}
+}
 
-		self.handle = Some(device.open()?);
-		let handle = self.handle.as_mut().unwrap();
+const RASTER_LINE_LENGTH: u8 = 90;
 
-		let config = device.active_config_descriptor()?;
+pub struct ThermalPrinter<'d> {
+	device: libusb::Device<'d>,
+	handle: libusb::DeviceHandle<'d>,
+	in_endpoint: Option<u8>,
+	out_endpoint: Option<u8>,
+}
+impl<'d> ThermalPrinter<'d> {
+	pub fn new(device: libusb::Device<'d>) -> Result<Self, Error> {
+		Ok(ThermalPrinter {
+			handle: device.open()?,
+			device,
+			in_endpoint: None,
+			out_endpoint: None,
+		})
+	}
+
+	pub fn init(&mut self) -> Result<Status::Response, Error> {
+		let config = self.device.active_config_descriptor()?;
 		let interface = config.interfaces().next().expect("Brother QL printers should have exactly one interface");
 		let interface_descriptor = interface.descriptors().next().expect("Brother QL printers should have exactly one interface descriptor");
 		for endpoint in interface_descriptor.endpoint_descriptors() {
@@ -126,9 +149,11 @@ impl<'d> ThermalPrinter<'d> {
 		}
 		assert!(self.in_endpoint.is_some() && self.out_endpoint.is_some(), "Input/output endpoints not found");
 
-		handle.claim_interface(interface.number())?;
-		if self.context.supports_detach_kernel_driver() && handle.kernel_driver_active(interface.number())? {
-			handle.detach_kernel_driver(interface.number())?;
+		self.handle.claim_interface(interface.number())?;
+		if let Ok(kd_active) = self.handle.kernel_driver_active(interface.number()) {
+			if kd_active {
+				self.handle.detach_kernel_driver(interface.number())?;
+			}
 		}
 
 		// Reset printer
@@ -193,11 +218,9 @@ impl<'d> ThermalPrinter<'d> {
 	}
 
 	fn read(&self) -> Result<Status::Response, Error> {
-		let handle = self.handle.as_ref().expect("Printer not initialized");
-
 		const RECEIVE_SIZE: usize = 32;
 		let mut response = [0; RECEIVE_SIZE];
-		let bytes_read = handle.read_bulk(self.in_endpoint.unwrap(), &mut response, Duration::from_millis(500))?;
+		let bytes_read = self.handle.read_bulk(self.in_endpoint.unwrap(), &mut response, Duration::from_millis(500))?;
 
 		if bytes_read != RECEIVE_SIZE || response[0] != 0x80 {
 			return Err("Invalid response received from printer".into());
@@ -264,8 +287,7 @@ impl<'d> ThermalPrinter<'d> {
 	}
 
 	fn write(&self, data: &[u8]) -> Result<(), Error> {
-		let handle = self.handle.as_ref().expect("Printer not initialized");
-		handle.write_bulk(self.out_endpoint.unwrap(), data, Duration::from_millis(500))?;
+		self.handle.write_bulk(self.out_endpoint.unwrap(), data, Duration::from_millis(500))?;
 		Ok(())
 	}
 }
