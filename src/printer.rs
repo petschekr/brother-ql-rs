@@ -1,6 +1,5 @@
 use std::fmt;
 use std::time::Duration;
-use std::collections::HashMap;
 
 pub mod constants;
 
@@ -75,7 +74,6 @@ mod Status {
 
 pub struct PrinterManager {
 	context: libusb::Context,
-	init_map: HashMap<u8, bool>
 }
 
 impl PrinterManager {
@@ -83,7 +81,6 @@ impl PrinterManager {
 		let context = libusb::Context::new()?;
 		Ok(Self {
 			context,
-			init_map: HashMap::new()
 		})
 	}
 
@@ -101,7 +98,7 @@ impl PrinterManager {
 		Ok(devices.count() as u8)
 	}
 
-	pub fn get<F>(&mut self, index: u8, callback: F) -> ()
+	pub fn get<F>(&self, index: u8, callback: F) -> ()
 		where F: FnOnce(ThermalPrinter) -> ()
 	{
 		let device = self.context
@@ -110,10 +107,7 @@ impl PrinterManager {
 			.filter(PrinterManager::printer_filter)
 			.nth(index as usize).expect("No printer found at index");
 		let mut printer = ThermalPrinter::new(device).unwrap();
-		if !self.init_map.get(&index).unwrap_or(&false) {
-			printer.init().unwrap();
-			self.init_map.insert(index, true);
-		}
+		printer.init().unwrap();
 		callback(printer);
 	}
 }
