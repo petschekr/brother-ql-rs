@@ -1,5 +1,6 @@
 use std::fmt;
 use std::time::Duration;
+use std::thread;
 
 pub mod constants;
 
@@ -54,7 +55,7 @@ mod Status {
 		}
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, PartialEq)]
 	pub enum StatusType {
 		ReplyToStatusRequest,
 		PrintingCompleted,
@@ -195,6 +196,16 @@ impl<'d> ThermalPrinter<'d> {
 		self.write(&print_command)?;
 
 		self.read()
+	}
+	pub fn print_blocking(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<(), Error> {
+		self.print(raster_lines)?;
+		loop {
+			match self.read() {
+				Ok(ref response) if response.status_type == Status::StatusType::PrintingCompleted => break,
+				_ => thread::sleep(Duration::from_millis(50)),
+			}
+		}
+		Ok(())
 	}
 
 	pub fn current_label(&self) -> Result<constants::Label, Error> {
