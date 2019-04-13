@@ -132,7 +132,7 @@ impl TextRasterizer {
 
             if self.label.tape_size.0 == 12 {
                 // 12mm label seems to need this for some reason
-                width += 10;
+                width += 25;
                 // 12mm labels have a second label below the primary that can actually be used
 				if self.second_row_image.is_some() {
 					secondary_width = 170;
@@ -171,7 +171,7 @@ impl TextRasterizer {
                 let primary = ResizedText::create(&font, text, length, 125.0 * font_scale);
 
                 let offset = XY {
-                    x: (length as i32 / 2) - (primary.rendered_size.x as i32 / 2),
+                    x: (length as i32 / 2) - (primary.rendered_size.x as i32 / 2) - 5,
                     y: (width  as i32 / 2) - (primary.rendered_size.y as i32 / 2),
                 };
 
@@ -192,7 +192,7 @@ impl TextRasterizer {
                 new_width = (new_height as f32 * ratio) as u32;
             }
             let resized = image::imageops::resize(&overlay, new_width, new_height, image::FilterType::Triangle);
-            image::imageops::overlay(&mut image, &resized, (length - new_width) / 2, width + top_margin);
+            image::imageops::overlay(&mut image, &resized, (length - new_width) / 2, width);
         }
 
         // Save the image to a png file if debug mode is enabled
