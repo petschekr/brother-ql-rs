@@ -65,9 +65,7 @@ fn draw_glyphs(image: &mut image::GrayImage, glyphs: &[rusttype::PositionedGlyph
                     (x as i32 + bounding_box.min.x + offset.x) as u32,
                     (y as i32 + bounding_box.min.y + offset.y) as u32,
                     // Turn the coverage into an alpha value
-                    Luma {
-                        data: [color],
-                    },
+                    Luma([color])
                 )
             });
         }

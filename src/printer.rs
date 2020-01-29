@@ -5,7 +5,7 @@ use std::thread;
 pub mod constants;
 
 pub enum Error {
-	USB(libusb::Error),
+	USB(rusb::Error),
 	Message(&'static str),
 }
 impl fmt::Debug for Error {
@@ -16,8 +16,8 @@ impl fmt::Debug for Error {
 		}
 	}
 }
-impl From<libusb::Error> for Error {
-	fn from(err: libusb::Error) -> Error {
+impl From<rusb::Error> for Error {
+	fn from(err: rusb::Error) -> Error {
 		Error::USB(err)
 	}
 }
@@ -74,18 +74,18 @@ mod Status {
 }
 
 pub struct PrinterManager {
-	context: libusb::Context,
+	context: rusb::Context,
 }
 
 impl PrinterManager {
 	pub fn new() -> Result<Self, Error> {
-		let context = libusb::Context::new()?;
+		let context = rusb::Context::new()?;
 		Ok(Self {
 			context,
 		})
 	}
 
-	fn printer_filter(device: &libusb::Device) -> bool {
+	fn printer_filter<T: rusb::UsbContext>(device: &rusb::Device<T>) -> bool {
 		let descriptor = device.device_descriptor().unwrap();
 		if descriptor.vendor_id() == constants::VENDOR_ID && descriptor.product_id() == 0x2049 {
 			eprintln!("You must disable Editor Lite mode on your QL-700 before you can print with it");
@@ -99,8 +99,9 @@ impl PrinterManager {
 		Ok(devices.count() as u8)
 	}
 
-	pub fn get<F>(&self, index: u8, callback: F) -> ()
-		where F: FnOnce(ThermalPrinter) -> ()
+	pub fn get<F, T>(&self, index: u8, callback: F) -> () where
+		T: rusb::UsbContext,
+		F: FnOnce(ThermalPrinter<T>) -> ()
 	{
 		let device = self.context
 			.devices().expect("Failed to get devices")
@@ -115,14 +116,14 @@ impl PrinterManager {
 
 const RASTER_LINE_LENGTH: u8 = 90;
 
-pub struct ThermalPrinter<'d> {
-	device: libusb::Device<'d>,
-	handle: libusb::DeviceHandle<'d>,
+pub struct ThermalPrinter<T: rusb::UsbContext> {
+	device: rusb::Device<T>,
+	handle: rusb::DeviceHandle<T>,
 	in_endpoint: Option<u8>,
 	out_endpoint: Option<u8>,
 }
-impl<'d> ThermalPrinter<'d> {
-	pub fn new(device: libusb::Device<'d>) -> Result<Self, Error> {
+impl<T: rusb::UsbContext> ThermalPrinter<T> {
+	pub fn new(device: rusb::Device<T>) -> Result<Self, Error> {
 		Ok(ThermalPrinter {
 			handle: device.open()?,
 			device,
@@ -136,10 +137,10 @@ impl<'d> ThermalPrinter<'d> {
 		let interface = config.interfaces().next().expect("Brother QL printers should have exactly one interface");
 		let interface_descriptor = interface.descriptors().next().expect("Brother QL printers should have exactly one interface descriptor");
 		for endpoint in interface_descriptor.endpoint_descriptors() {
-			assert_eq!(endpoint.transfer_type(), libusb::TransferType::Bulk, "Brother QL printers are defined as using bulk endpoint communication");
+			assert_eq!(endpoint.transfer_type(), rusb::TransferType::Bulk, "Brother QL printers are defined as using bulk endpoint communication");
 			match endpoint.direction() {
-				libusb::Direction::In  => self.in_endpoint  = Some(endpoint.address()),
-				libusb::Direction::Out => self.out_endpoint = Some(endpoint.address()),
+				rusb::Direction::In  => self.in_endpoint  = Some(endpoint.address()),
+				rusb::Direction::Out => self.out_endpoint = Some(endpoint.address()),
 			}
 		}
 		assert!(self.in_endpoint.is_some() && self.out_endpoint.is_some(), "Input/output endpoints not found");
@@ -302,7 +303,7 @@ mod tests {
 	use crate::printer::ThermalPrinter;
 	#[test]
 	fn connect() {
-		let context = libusb::Context::new().unwrap();
+		let context = rusb::Context::new().unwrap();
 		let mut printer = ThermalPrinter::new(&context).unwrap();
 		let available = printer.available_devices().unwrap();
 		assert!(dbg!(available) > 0, "No printers found");
@@ -313,7 +314,7 @@ mod tests {
     #[test]
 	#[ignore]
     fn print() {
-		let context = libusb::Context::new().unwrap();
+		let context = rusb::Context::new().unwrap();
 		let mut printer = ThermalPrinter::new(&context).unwrap();
 		let available = printer.available_devices().unwrap();
 		assert!(dbg!(available) > 0, "No printers found");
