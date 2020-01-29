@@ -1,29 +1,11 @@
-use std::fmt;
 use std::time::Duration;
 use std::thread;
 
 pub mod constants;
 
-pub enum Error {
-	USB(rusb::Error),
-	Message(&'static str),
-}
-impl fmt::Debug for Error {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		match *self {
-			Error::USB(ref usb_error) => write!(f, "{:?}", *usb_error),
-			Error::Message(s) => write!(f, "{}", s),
-		}
-	}
-}
-impl From<rusb::Error> for Error {
-	fn from(err: rusb::Error) -> Error {
-		Error::USB(err)
-	}
-}
-impl From<&'static str> for Error {
-	fn from(err: &'static str) -> Error {
-		Error::Message(err)
+error_chain! {
+	foreign_links {
+		USB(rusb::Error);
 	}
 }
 
@@ -78,7 +60,7 @@ pub struct PrinterManager {
 }
 
 impl PrinterManager {
-	pub fn new() -> Result<Self, Error> {
+	pub fn new() -> Result<Self> {
 		let context = rusb::Context::new()?;
 		Ok(Self {
 			context,
@@ -93,7 +75,7 @@ impl PrinterManager {
 		descriptor.vendor_id() == constants::VENDOR_ID && constants::printer_name_from_id(descriptor.product_id()).is_some()
 	}
 
-	pub fn available_devices(&self) -> Result<u8, Error> {
+	pub fn available_devices(&self) -> Result<u8> {
 		let devices = self.context.devices()?;
 		let devices = devices.iter().filter(PrinterManager::printer_filter);
 		Ok(devices.count() as u8)
@@ -123,7 +105,7 @@ pub struct ThermalPrinter<T: rusb::UsbContext> {
 	out_endpoint: Option<u8>,
 }
 impl<T: rusb::UsbContext> ThermalPrinter<T> {
-	pub fn new(device: rusb::Device<T>) -> Result<Self, Error> {
+	pub fn new(device: rusb::Device<T>) -> Result<Self> {
 		Ok(ThermalPrinter {
 			handle: device.open()?,
 			device,
@@ -132,7 +114,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		})
 	}
 
-	pub fn init(&mut self) -> Result<Status::Response, Error> {
+	pub fn init(&mut self) -> Result<Status::Response> {
 		let config = self.device.active_config_descriptor()?;
 		let interface = config.interfaces().next().expect("Brother QL printers should have exactly one interface");
 		let interface_descriptor = interface.descriptors().next().expect("Brother QL printers should have exactly one interface descriptor");
@@ -161,7 +143,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		self.get_status()
 	}
 
-	pub fn print(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<Status::Response, Error> {
+	pub fn print(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<Status::Response> {
 		let status = self.get_status()?;
 
 		let mode_command = [0x1B, 0x69, 0x61, 1];
@@ -198,7 +180,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 		self.read()
 	}
-	pub fn print_blocking(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<(), Error> {
+	pub fn print_blocking(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<()> {
 		self.print(raster_lines)?;
 		loop {
 			match self.read() {
@@ -209,7 +191,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		Ok(())
 	}
 
-	pub fn current_label(&self) -> Result<constants::Label, Error> {
+	pub fn current_label(&self) -> Result<constants::Label> {
 		let media = self.get_status()?.media;
 		constants::label_data(media.width, match media.length {
 			0 => None,
@@ -217,13 +199,13 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		}).ok_or("Unknown media loaded in printer".into())
 	}
 
-	pub fn get_status(&self) -> Result<Status::Response, Error> {
+	pub fn get_status(&self) -> Result<Status::Response> {
 		let status_command = [0x1B, 0x69, 0x53];
 		self.write(&status_command)?;
 		self.read()
 	}
 
-	fn read(&self) -> Result<Status::Response, Error> {
+	fn read(&self) -> Result<Status::Response> {
 		const RECEIVE_SIZE: usize = 32;
 		let mut response = [0; RECEIVE_SIZE];
 		let bytes_read = self.handle.read_bulk(self.in_endpoint.unwrap(), &mut response, Duration::from_millis(500))?;
@@ -292,7 +274,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		})
 	}
 
-	fn write(&self, data: &[u8]) -> Result<(), Error> {
+	fn write(&self, data: &[u8]) -> Result<()> {
 		self.handle.write_bulk(self.out_endpoint.unwrap(), data, Duration::from_millis(500))?;
 		Ok(())
 	}

@@ -12,6 +12,10 @@ repository = "https://github.com/petschekr/brother-ql-rs"
 rusttype = "0.8.2"
 image = "0.22.4"
 rusb = "0.5"
+error-chain = "0.12.1"
 
-[replace]
-"libusb-sys:0.2.3"= { git = "https://github.com/cmsd2/libusb-sys/" }
+#[replace]
+#"libusb-sys:0.2.3"= { git = "https://github.com/cmsd2/libusb-sys/" }
+
+[patch.crates-io]
+backtrace = { path = '../backtrace-rs' }
