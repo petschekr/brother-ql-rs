@@ -87,23 +87,19 @@ pub fn printers() -> Vec<rusb::Device<rusb::GlobalContext>> {
 const RASTER_LINE_LENGTH: u8 = 90;
 
 pub struct ThermalPrinter<T: rusb::UsbContext> {
+	pub model: String,
 	device: rusb::Device<T>,
 	handle: rusb::DeviceHandle<T>,
-	in_endpoint: Option<u8>,
-	out_endpoint: Option<u8>,
+	in_endpoint: u8,
+	out_endpoint: u8,
 }
 impl<T: rusb::UsbContext> ThermalPrinter<T> {
 	pub fn new(device: rusb::Device<T>) -> Result<Self> {
-		Ok(ThermalPrinter {
-			handle: device.open()?,
-			device,
-			in_endpoint: None,
-			out_endpoint: None,
-		})
-	}
+		let mut handle = device.open()?;
+		let mut in_endpoint: Option<u8> = None;
+		let mut out_endpoint: Option<u8> = None;
 
-	pub fn init(&mut self) -> Result<Status::Response> {
-		let config = self.device.active_config_descriptor()?;
+		let config = device.active_config_descriptor()?;
 		let interface = config.interfaces().next().chain_err(|| "Brother QL printers should have exactly one interface")?;
 		let interface_descriptor = interface.descriptors().next().chain_err(|| "Brother QL printers should have exactly one interface descriptor")?;
 		for endpoint in interface_descriptor.endpoint_descriptors() {
@@ -111,28 +107,38 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 				bail!("Brother QL printers are defined as using only bulk endpoint communication");
 			}
 			match endpoint.direction() {
-				rusb::Direction::In  => self.in_endpoint  = Some(endpoint.address()),
-				rusb::Direction::Out => self.out_endpoint = Some(endpoint.address()),
+				rusb::Direction::In  => in_endpoint  = Some(endpoint.address()),
+				rusb::Direction::Out => out_endpoint = Some(endpoint.address()),
 			}
 		}
-		if self.in_endpoint.is_none() || self.out_endpoint.is_none() {
+		if in_endpoint.is_none() || out_endpoint.is_none() {
 			bail!("Input or output endpoint not found");
 		}
 
-		self.handle.claim_interface(interface.number())?;
-		if let Ok(kd_active) = self.handle.kernel_driver_active(interface.number()) {
+		handle.claim_interface(interface.number())?;
+		if let Ok(kd_active) = handle.kernel_driver_active(interface.number()) {
 			if kd_active {
-				self.handle.detach_kernel_driver(interface.number())?;
+				handle.detach_kernel_driver(interface.number())?;
 			}
 		}
 
+		let mut printer = ThermalPrinter {
+			model: String::new(),
+			device,
+			handle,
+			in_endpoint: in_endpoint.unwrap(),
+			out_endpoint: out_endpoint.unwrap(),
+		};
+
 		// Reset printer
 		let clear_command = [0x00; 200];
-		self.write(&clear_command)?;
+		ThermalPrinter::write(&printer, &clear_command)?;
 		let initialize_command = [0x1B, 0x40];
-		self.write(&initialize_command)?;
+		ThermalPrinter::write(&printer, &initialize_command)?;
 
-		self.get_status()
+		let status = ThermalPrinter::get_status(&printer)?;
+		printer.model = status.model.to_string();
+		Ok(printer)
 	}
 
 	pub fn print(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<Status::Response> {
@@ -200,7 +206,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 	fn read(&self) -> Result<Status::Response> {
 		const RECEIVE_SIZE: usize = 32;
 		let mut response = [0; RECEIVE_SIZE];
-		let bytes_read = self.handle.read_bulk(self.in_endpoint.unwrap(), &mut response, Duration::from_millis(500))?;
+		let bytes_read = self.handle.read_bulk(self.in_endpoint, &mut response, Duration::from_millis(500))?;
 
 		if bytes_read != RECEIVE_SIZE || response[0] != 0x80 {
 			return Err("Invalid response received from printer".into());
@@ -267,7 +273,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 	}
 
 	fn write(&self, data: &[u8]) -> Result<()> {
-		self.handle.write_bulk(self.out_endpoint.unwrap(), data, Duration::from_millis(500))?;
+		self.handle.write_bulk(self.out_endpoint, data, Duration::from_millis(500))?;
 		Ok(())
 	}
 }

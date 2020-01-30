@@ -1,7 +1,7 @@
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct WidthLength(pub u32, pub u32);
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Label {
 	pub tape_size: WidthLength,
 	pub dots: WidthLength,
