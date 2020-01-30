@@ -55,46 +55,34 @@ mod Status {
 	}
 }
 
-pub struct PrinterManager {
-	context: rusb::Context,
+fn printer_filter(device: &rusb::Device<rusb::GlobalContext>) -> bool {
+	let descriptor = device.device_descriptor().unwrap();
+	if descriptor.vendor_id() == constants::VENDOR_ID && descriptor.product_id() == 0x2049 {
+		eprintln!("You must disable Editor Lite mode on your QL-700 before you can print with it");
+	}
+	descriptor.vendor_id() == constants::VENDOR_ID && constants::printer_name_from_id(descriptor.product_id()).is_some()
+}
+pub fn printers() -> Vec<rusb::Device<rusb::GlobalContext>> {
+	rusb::DeviceList::new()
+		.unwrap()
+		.iter()
+		.filter(printer_filter)
+		.collect()
 }
 
-impl PrinterManager {
-	pub fn new() -> Result<Self> {
-		let context = rusb::Context::new()?;
-		Ok(Self {
-			context,
-		})
-	}
-
-	fn printer_filter<T: rusb::UsbContext>(device: &rusb::Device<T>) -> bool {
-		let descriptor = device.device_descriptor().unwrap();
-		if descriptor.vendor_id() == constants::VENDOR_ID && descriptor.product_id() == 0x2049 {
-			eprintln!("You must disable Editor Lite mode on your QL-700 before you can print with it");
-		}
-		descriptor.vendor_id() == constants::VENDOR_ID && constants::printer_name_from_id(descriptor.product_id()).is_some()
-	}
-
-	pub fn available_devices(&self) -> Result<u8> {
-		let devices = self.context.devices()?;
-		let devices = devices.iter().filter(PrinterManager::printer_filter);
-		Ok(devices.count() as u8)
-	}
-
-	pub fn get<F, T>(&self, index: u8, callback: F) -> () where
-		T: rusb::UsbContext,
-		F: FnOnce(ThermalPrinter<T>) -> ()
-	{
-		let device = self.context
-			.devices().expect("Failed to get devices")
-			.iter()
-			.filter(PrinterManager::printer_filter)
-			.nth(index as usize).expect("No printer found at index");
-		let mut printer = ThermalPrinter::new(device).unwrap();
-		printer.init().unwrap();
-		callback(printer);
-	}
-}
+// pub fn get<F, T>(&self, index: u8, callback: F) -> () where
+// 	T: rusb::UsbContext,
+// 	F: FnOnce(ThermalPrinter<T>) -> ()
+// {
+// 	let device = self.context
+// 		.devices().expect("Failed to get devices")
+// 		.iter()
+// 		.filter(PrinterManager::printer_filter)
+// 		.nth(index as usize).expect("No printer found at index");
+// 	let mut printer = ThermalPrinter::new(device).unwrap();
+// 	printer.init().unwrap();
+// 	callback(printer);
+// }
 
 const RASTER_LINE_LENGTH: u8 = 90;
 
