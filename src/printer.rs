@@ -1,3 +1,5 @@
+//! Everything to do with USB protocol for Brother QL printers
+
 use std::time::Duration;
 use std::thread;
 
@@ -10,7 +12,14 @@ error_chain! {
 }
 
 #[allow(non_snake_case)]
-mod Status {
+pub mod status {
+	//! A representation of the status message Brother QL printers use
+	//!
+	//! Includes:
+	//! * Model name
+	//! * Loaded media
+	//! * Current operation
+	//! * Any errors that have occurred
 	use super::constants::*;
 	#[derive(Debug)]
 	pub enum MediaType {
@@ -62,6 +71,8 @@ fn printer_filter<T: rusb::UsbContext>(device: &rusb::Device<T>) -> bool {
 	}
 	descriptor.vendor_id() == constants::VENDOR_ID && constants::printer_name_from_id(descriptor.product_id()).is_some()
 }
+
+/// Get a vector of all attached and supported Brother QL printers as USB devices from which `ThermalPrinter` structs can be initialized.
 pub fn printers() -> Vec<rusb::Device<rusb::GlobalContext>> {
 	rusb::DeviceList::new()
 		.unwrap()
@@ -70,30 +81,19 @@ pub fn printers() -> Vec<rusb::Device<rusb::GlobalContext>> {
 		.collect()
 }
 
-// pub fn get<F, T>(&self, index: u8, callback: F) -> () where
-// 	T: rusb::UsbContext,
-// 	F: FnOnce(ThermalPrinter<T>) -> ()
-// {
-// 	let device = self.context
-// 		.devices().expect("Failed to get devices")
-// 		.iter()
-// 		.filter(PrinterManager::printer_filter)
-// 		.nth(index as usize).expect("No printer found at index");
-// 	let mut printer = ThermalPrinter::new(device).unwrap();
-// 	printer.init().unwrap();
-// 	callback(printer);
-// }
-
 const RASTER_LINE_LENGTH: u8 = 90;
 
+/// The primary interface for dealing with Brother QL printers. Handles all USB communication with the printer.
 pub struct ThermalPrinter<T: rusb::UsbContext> {
 	pub model: String,
-	device: rusb::Device<T>,
 	handle: rusb::DeviceHandle<T>,
 	in_endpoint: u8,
 	out_endpoint: u8,
 }
 impl<T: rusb::UsbContext> ThermalPrinter<T> {
+	/// Create a new `ThermalPrinter` instance using a `rusb` USB device handle.
+	///
+	/// Obtain list of connected device handles by calling `printers()`.
 	pub fn new(device: rusb::Device<T>) -> Result<Self> {
 		let mut handle = device.open()?;
 		let mut in_endpoint: Option<u8> = None;
@@ -124,7 +124,6 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 		let mut printer = ThermalPrinter {
 			model: String::new(),
-			device,
 			handle,
 			in_endpoint: in_endpoint.unwrap(),
 			out_endpoint: out_endpoint.unwrap(),
@@ -141,7 +140,16 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		Ok(printer)
 	}
 
-	pub fn print(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<Status::Response> {
+	/// Sends raster lines to the USB printer, begins printing, and immediately returns
+	///
+	/// Images on the label tape are comprised of bits representing either black (`1`) or white (`0`). They are
+	/// arranged in lines of a static width that corresponds to the width of the printer's thermal print head.
+	///
+	/// **Note:** the raster line width does not change for label media of different sizes. This means the
+	/// printer can print out-of-bounds and even print on parts of the label not originally intended to
+	/// contain content. Your rasterizer will have to figure out, given a media type, which parts of the
+	/// image will appear on the media and resize or shift margins and content accordingly.
+	pub fn print(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<status::Response> {
 		let status = self.get_status()?;
 
 		let mode_command = [0x1B, 0x69, 0x61, 1];
@@ -149,8 +157,8 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 		const VALID_FLAGS: u8 = 0x80 | 0x02 | 0x04 | 0x08 | 0x40; // Everything enabled
 		let media_type: u8 = match status.media.media_type {
-			Status::MediaType::ContinuousTape => 0x0A,
-			Status::MediaType::DieCutLabels => 0x0B,
+			status::MediaType::ContinuousTape => 0x0A,
+			status::MediaType::DieCutLabels => 0x0B,
 			_ => return Err("No media loaded into printer".into())
 		};
 
@@ -178,17 +186,19 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 		self.read()
 	}
+	/// Same as `print()` but will not return until the printer reports that it has finished printing.
 	pub fn print_blocking(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<()> {
 		self.print(raster_lines)?;
 		loop {
 			match self.read() {
-				Ok(ref response) if response.status_type == Status::StatusType::PrintingCompleted => break,
+				Ok(ref response) if response.status_type == status::StatusType::PrintingCompleted => break,
 				_ => thread::sleep(Duration::from_millis(50)),
 			}
 		}
 		Ok(())
 	}
 
+	/// Get the currently loaded label size.
 	pub fn current_label(&self) -> Result<constants::Label> {
 		let media = self.get_status()?.media;
 		constants::label_data(media.width, match media.length {
@@ -197,13 +207,14 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		}).ok_or("Unknown media loaded in printer".into())
 	}
 
-	pub fn get_status(&self) -> Result<Status::Response> {
+	/// Get the current status of the printer including possible errors, media type, and model name.
+	pub fn get_status(&self) -> Result<status::Response> {
 		let status_command = [0x1B, 0x69, 0x53];
 		self.write(&status_command)?;
 		self.read()
 	}
 
-	fn read(&self) -> Result<Status::Response> {
+	fn read(&self) -> Result<status::Response> {
 		const RECEIVE_SIZE: usize = 32;
 		let mut response = [0; RECEIVE_SIZE];
 		let bytes_read = self.handle.read_bulk(self.in_endpoint, &mut response, Duration::from_millis(500))?;
@@ -245,26 +256,26 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		let length = response[17];
 
 		let media_type = match response[11] {
-			0x0A => Status::MediaType::ContinuousTape,
-			0x0B => Status::MediaType::DieCutLabels,
-			_    => Status::MediaType::None,
+			0x0A => status::MediaType::ContinuousTape,
+			0x0B => status::MediaType::DieCutLabels,
+			_    => status::MediaType::None,
 		};
 
 		let status_type = match response[18] {
-			0x00 => Status::StatusType::ReplyToStatusRequest,
-			0x01 => Status::StatusType::PrintingCompleted,
-			0x02 => Status::StatusType::ErrorOccurred,
-			0x05 => Status::StatusType::Notification,
-			0x06 => Status::StatusType::PhaseChange,
+			0x00 => status::StatusType::ReplyToStatusRequest,
+			0x01 => status::StatusType::PrintingCompleted,
+			0x02 => status::StatusType::ErrorOccurred,
+			0x05 => status::StatusType::Notification,
+			0x06 => status::StatusType::PhaseChange,
 			// Will never occur
-			_ => Status::StatusType::Notification
+			_ => status::StatusType::Notification
 		};
 
-		Ok(Status::Response {
+		Ok(status::Response {
 			model,
 			status_type,
 			errors,
-			media: Status::Media {
+			media: status::Media {
 				media_type,
 				width,
 				length,

@@ -1,3 +1,5 @@
+//! Easy-to-use text and image compositing and rasterization for use with Brother QL printers
+
 use std::path::PathBuf;
 use std::fs;
 use rusttype::{ Scale, Point, Font };
@@ -105,12 +107,15 @@ fn image_to_raster_lines(image: &image::GrayImage, width: u32) -> Vec<[u8; 90]> 
     lines
 }
 
+/// Easily convert text into a raster image that can be printed by a `ThermalPrinter`
 pub struct TextRasterizer {
     label: Label,
     font_path: PathBuf,
     second_row_image: Option<PathBuf>,
 }
 impl TextRasterizer {
+    /// The text rasterizer needs to know the loaded label media currently in the printer in order to resize and
+    /// shift the text content accordingly so that it will fit.
     pub fn new(label: Label, font_path: PathBuf) -> Self {
         Self {
             label,
@@ -118,9 +123,17 @@ impl TextRasterizer {
             second_row_image: None
         }
     }
+    /// Some types of label media (e.g. 12mm continuous tape) are wider than specified. Use this method to draw
+    /// an image onto this second, normally out-of-bounds part of the tape. The bottom portion of the tape
+    /// is usually pre-scored from the top part so consider this a way to make "bonus" labels with the same
+    /// amount of physical tape.
     pub fn set_second_row_image(&mut self, path: PathBuf) {
         self.second_row_image = Some(path);
     }
+    /// Transforms text into a raster image ready to send to the `ThermalPrinter`. Typically, the text will appear
+    /// as black on a white background. Enable the `invert` flag to print white text on a black background. Note that
+    /// since the label is white, a faint border of white will still surround the label in areas that the printer
+    /// cannot print the black background.
     pub fn rasterize(&self, text: &str, secondary_text: Option<&str>, font_scale: f32, invert: bool) -> Vec<[u8; 90]> {
         let font_data = fs::read(&self.font_path).expect("Invalid font path");
         let font: Font<'static> = Font::from_bytes(font_data).unwrap();

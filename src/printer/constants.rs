@@ -1,3 +1,5 @@
+//! Label media and USB ID constants used by Brother QL printers
+
 #[derive(Debug, Copy, Clone)]
 pub struct WidthLength(pub u32, pub u32);
 
@@ -10,6 +12,9 @@ pub struct Label {
 	pub feed_margin: u8,
 }
 
+/// Returns a corresponding label type given dimensions returned by the printer
+///
+/// These are predefined label rolls types sold by Brother and defined in the spec
 pub fn label_data(width: u8, length: Option<u8>) -> Option<Label> {
 	if let Some(length) = length {
 		// Die cut label
@@ -144,8 +149,10 @@ pub fn label_data(width: u8, length: Option<u8>) -> Option<Label> {
 	}
 }
 
+/// USB Vendor ID for Brother QL printers
 pub const VENDOR_ID: u16 = 0x04F9;
 
+/// Get the string representation of a printer's model name from a USB Product ID
 pub fn printer_name_from_id(id: u16) -> Option<&'static str> {
 	match id {
 		0x2015 => Some("QL-500"),
