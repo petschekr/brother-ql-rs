@@ -16,6 +16,3 @@ error-chain = "0.12.1"
 
 #[replace]
 #"libusb-sys:0.2.3"= { git = "https://github.com/cmsd2/libusb-sys/" }
-
-[patch.crates-io]
-backtrace = { path = '../backtrace-rs' }

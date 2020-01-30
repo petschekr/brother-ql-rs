@@ -55,7 +55,7 @@ mod Status {
 	}
 }
 
-fn printer_filter(device: &rusb::Device<rusb::GlobalContext>) -> bool {
+fn printer_filter<T: rusb::UsbContext>(device: &rusb::Device<T>) -> bool {
 	let descriptor = device.device_descriptor().unwrap();
 	if descriptor.vendor_id() == constants::VENDOR_ID && descriptor.product_id() == 0x2049 {
 		eprintln!("You must disable Editor Lite mode on your QL-700 before you can print with it");
@@ -104,16 +104,20 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 	pub fn init(&mut self) -> Result<Status::Response> {
 		let config = self.device.active_config_descriptor()?;
-		let interface = config.interfaces().next().expect("Brother QL printers should have exactly one interface");
-		let interface_descriptor = interface.descriptors().next().expect("Brother QL printers should have exactly one interface descriptor");
+		let interface = config.interfaces().next().chain_err(|| "Brother QL printers should have exactly one interface")?;
+		let interface_descriptor = interface.descriptors().next().chain_err(|| "Brother QL printers should have exactly one interface descriptor")?;
 		for endpoint in interface_descriptor.endpoint_descriptors() {
-			assert_eq!(endpoint.transfer_type(), rusb::TransferType::Bulk, "Brother QL printers are defined as using bulk endpoint communication");
+			if endpoint.transfer_type() != rusb::TransferType::Bulk {
+				bail!("Brother QL printers are defined as using only bulk endpoint communication");
+			}
 			match endpoint.direction() {
 				rusb::Direction::In  => self.in_endpoint  = Some(endpoint.address()),
 				rusb::Direction::Out => self.out_endpoint = Some(endpoint.address()),
 			}
 		}
-		assert!(self.in_endpoint.is_some() && self.out_endpoint.is_some(), "Input/output endpoints not found");
+		if self.in_endpoint.is_none() || self.out_endpoint.is_none() {
+			bail!("Input or output endpoint not found");
+		}
 
 		self.handle.claim_interface(interface.number())?;
 		if let Ok(kd_active) = self.handle.kernel_driver_active(interface.number()) {
@@ -270,25 +274,23 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 #[cfg(test)]
 mod tests {
-	use crate::printer::ThermalPrinter;
+	use crate::printer::{ printers, ThermalPrinter };
 	#[test]
 	fn connect() {
-		let context = rusb::Context::new().unwrap();
-		let mut printer = ThermalPrinter::new(&context).unwrap();
-		let available = printer.available_devices().unwrap();
-		assert!(dbg!(available) > 0, "No printers found");
-		printer.init(0).unwrap();
+		let printer_list = printers();
+		assert!(printer_list.len() > 0, "No printers found");
+		let mut printer = ThermalPrinter::new(printer_list.into_iter().next().unwrap()).unwrap();
+		printer.init().unwrap();
 	}
 
 	use std::path::PathBuf;
     #[test]
 	#[ignore]
     fn print() {
-		let context = rusb::Context::new().unwrap();
-		let mut printer = ThermalPrinter::new(&context).unwrap();
-		let available = printer.available_devices().unwrap();
-		assert!(dbg!(available) > 0, "No printers found");
-		let label = printer.init(0).unwrap().media.to_label();
+		let printer_list = printers();
+		assert!(printer_list.len() > 0, "No printers found");
+		let mut printer = ThermalPrinter::new(printer_list.into_iter().next().unwrap()).unwrap();
+		let label = printer.init().unwrap().media.to_label();
 
         let mut rasterizer = crate::text::TextRasterizer::new(
             label,
@@ -298,7 +300,8 @@ mod tests {
         let lines = rasterizer.rasterize(
             "Ryan Petschek",
             Some("Computer Science"),
-            1.2
+			1.2,
+			false
         );
 
 		dbg!(printer.print(lines).unwrap());

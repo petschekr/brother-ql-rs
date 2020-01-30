@@ -219,22 +219,3 @@ impl TextRasterizer {
         image_to_raster_lines(&image, length)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use crate::printer::constants::label_data;
-    #[test]
-    fn rasterize_text() {
-        let mut rasterizer = crate::text::TextRasterizer::new(
-            label_data(12, None).unwrap(),
-            PathBuf::from("./Space Mono Bold.ttf")
-        );
-        rasterizer.set_second_row_image(PathBuf::from("./logos/BuildGT Mono.png"));
-        rasterizer.rasterize(
-            "Ryan Petschek",
-            Some("Computer Science"),
-            1.2
-        );
-    }
-}
