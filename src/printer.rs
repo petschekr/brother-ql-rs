@@ -1,4 +1,6 @@
 //! Everything to do with USB protocol for Brother QL printers
+//!
+//! Based on the published [Brother QL Series Command Reference](https://download.brother.com/welcome/docp000678/cv_qlseries_eng_raster_600.pdf)
 
 use std::time::Duration;
 use std::thread;
@@ -85,10 +87,17 @@ const RASTER_LINE_LENGTH: u8 = 90;
 
 /// The primary interface for dealing with Brother QL printers. Handles all USB communication with the printer.
 pub struct ThermalPrinter<T: rusb::UsbContext> {
+	pub manufacturer: String,
 	pub model: String,
+	pub serial_number: String,
 	handle: rusb::DeviceHandle<T>,
 	in_endpoint: u8,
 	out_endpoint: u8,
+}
+impl<T: rusb::UsbContext> std::fmt::Debug for ThermalPrinter<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} ({})", self.manufacturer, self.model, self.serial_number)
+    }
 }
 impl<T: rusb::UsbContext> ThermalPrinter<T> {
 	/// Create a new `ThermalPrinter` instance using a `rusb` USB device handle.
@@ -122,8 +131,12 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 			}
 		}
 
-		let mut printer = ThermalPrinter {
-			model: String::new(),
+		let device_descriptor = device.device_descriptor()?;
+
+		let printer = ThermalPrinter {
+			manufacturer: handle.read_manufacturer_string_ascii(&device_descriptor)?,
+			model: handle.read_product_string_ascii(&device_descriptor)?,
+			serial_number: handle.read_serial_number_string_ascii(&device_descriptor)?,
 			handle,
 			in_endpoint: in_endpoint.unwrap(),
 			out_endpoint: out_endpoint.unwrap(),
@@ -135,8 +148,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		let initialize_command = [0x1B, 0x40];
 		ThermalPrinter::write(&printer, &initialize_command)?;
 
-		let status = ThermalPrinter::get_status(&printer)?;
-		printer.model = status.model.to_string();
+		ThermalPrinter::get_status(&printer)?;
 		Ok(printer)
 	}
 
